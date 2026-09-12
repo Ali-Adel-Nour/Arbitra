@@ -1,7 +1,7 @@
 import { provider, escrowContract, wallet, CONTRACT_ADDRESS } from './contractClient.js';
 import { processDealSettlement, processedDealsInSession } from '../services/escrowManager.js';
 
-const POLL_INTERVAL_MS = 4000;
+const POLL_INTERVAL_MS = 15000;
 const MAX_BLOCKS_PER_QUERY = 10;
 
 // ---------------------------------------------------------------------------
