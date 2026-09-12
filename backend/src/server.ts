@@ -9,7 +9,7 @@ import {
   judgeDeliverable,
 } from "./ai-judge/index.js";
 import { settleEscrow } from "./oracle.js";
-import { getReputation } from "./reputation.js";
+import { getReputation, getMcpActivity } from "./reputation.js";
 import { markDealResolved, persistPreimage, readAllPersistedDeals } from "./persistence.js";
 import { readPersistedJudgment } from "./persistence.js";
 import { verifyVerdictHash, hashCanonicalValue } from "./ai-judge/verdict.js";
@@ -19,6 +19,9 @@ import { escrowContract } from "./blockchain/contractClient.js";
 export const settlementGateway = { settleEscrow };
 
 const PORT = Number(process.env.PORT ?? 3000);
+
+// Cache on-chain deal info to prevent RPC rate limits when frontend polls /api/deals
+const onChainDealCache = new Map<string, { amount: string; token: string }>();
 
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
@@ -280,18 +283,39 @@ export const server = createServer(
           const judgeInFlight =
             d.state === "JUDGED" && d.aiVerdict === null && state === "Submitted";
 
-          validDealsPromises.push((async () => {
+          validDealsPromises.push(async () => {
             let amount = "10000000"; // Fallback 10 USDC
             let token = "0x3600000000000000000000000000000000000000";
             
-            try {
-              const onChainDeal = await escrowContract.escrows(dealId);
-              if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
-                amount = onChainDeal.amount.toString();
-                token = onChainDeal.token;
+            // Skip dummy/mock deal IDs to prevent unnecessary RPC calls
+            if (!dealId.startsWith("0x9999999990123456")) {
+              // Read from cache first to avoid RPC rate limits
+              if (onChainDealCache.has(dealId)) {
+                const cached = onChainDealCache.get(dealId)!;
+                amount = cached.amount;
+                token = cached.token;
+              } else {
+                try {
+                  const onChainDeal = await escrowContract.escrows(dealId);
+                  if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
+                    amount = onChainDeal.amount.toString();
+                    token = onChainDeal.token;
+                    // Cache successful results indefinitely (amounts don't change)
+                    onChainDealCache.set(dealId, { amount, token });
+                  } else {
+                    // Cache the fallback to prevent retrying a missing contract every 4s
+                    onChainDealCache.set(dealId, { amount, token });
+                  }
+                } catch (err: any) {
+                  const reason = err.code || (err instanceof Error ? err.message : "Unknown error");
+                  // Only log if it's an unexpected error, not just a missing contract (CALL_EXCEPTION)
+                  if (reason !== "CALL_EXCEPTION") {
+                    console.warn(`Failed to fetch on-chain amount for deal: ${dealId} (${reason})`);
+                  }
+                  // Cache the fallback on failure to avoid spamming the failing RPC
+                  onChainDealCache.set(dealId, { amount, token });
+                }
               }
-            } catch (err) {
-              console.warn("Failed to fetch on-chain amount for deal:", dealId);
             }
 
             return {
@@ -307,10 +331,16 @@ export const server = createServer(
               verdictReasoningHash,
               ...(judgeInFlight ? { judgeRequestedAt: d.createdAt.toISOString() } : {})
             };
-          })());
+          });
         }
         
-        const validDeals = await Promise.all(validDealsPromises);
+        // Execute promises in chunks of 5 to avoid RPC rate limits
+        const validDeals = [];
+        for (let i = 0; i < validDealsPromises.length; i += 5) {
+          const chunk = validDealsPromises.slice(i, i + 5);
+          const results = await Promise.all(chunk.map((fn) => fn()));
+          validDeals.push(...results);
+        }
 
         sendJson(response, 200, {
           deals: validDeals,
@@ -325,12 +355,36 @@ export const server = createServer(
     }
 
     if (request.method === "GET" && request.url === "/api/agents") {
-      sendJson(response, 200, { agents: [], asOf: new Date().toISOString() });
+      try {
+        const persistedDeals = await readAllPersistedDeals();
+        const sellers = new Map<string, { totalJudged: number; categories: Set<string> }>();
+        for (const d of persistedDeals) {
+          if (!d.sellerAddress || !/^0x[0-9a-fA-F]{40}$/.test(d.sellerAddress) || d.aiVerdict === null) continue;
+          const seller = d.sellerAddress;
+          if (!sellers.has(seller)) {
+            sellers.set(seller, { totalJudged: 0, categories: new Set() });
+          }
+          const s = sellers.get(seller)!;
+          s.totalJudged++;
+          if (d.taskCategory) s.categories.add(d.taskCategory);
+        }
+        
+        const agents = Array.from(sellers.entries()).map(([agent, data]) => ({
+          agent,
+          address: agent,
+          totalJudged: data.totalJudged,
+          taskCategories: Array.from(data.categories),
+        }));
+        
+        sendJson(response, 200, { agents, asOf: new Date().toISOString() });
+      } catch (error) {
+        sendJson(response, 500, { error: error instanceof Error ? error.message : "Unable to read agents" });
+      }
       return;
     }
 
     if (request.method === "GET" && request.url === "/api/mcp-activity") {
-      sendJson(response, 200, { entries: [], asOf: new Date().toISOString() });
+      sendJson(response, 200, { entries: getMcpActivity(), asOf: new Date().toISOString() });
       return;
     }
 
@@ -392,15 +446,11 @@ export const server = createServer(
       return;
     }
 
-    if (request.method === "GET" && (request.url?.startsWith("/api/judgments/") || request.url?.startsWith("/api/verify/"))) {
+    if (request.method === "GET" && request.url?.startsWith("/api/verify/")) {
       let dealId: string;
       try {
         const path = new URL(request.url, "http://localhost").pathname;
-        if (path.startsWith("/api/verify/")) {
-          dealId = decodeURIComponent(path.slice("/api/verify/".length));
-        } else {
-          dealId = decodeURIComponent(path.slice("/api/judgments/".length));
-        }
+        dealId = decodeURIComponent(path.slice("/api/verify/".length));
       } catch {
         sendJson(response, 400, { error: "Deal ID must be URL encoded" });
         return;
