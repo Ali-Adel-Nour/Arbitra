@@ -70,13 +70,17 @@ const DECISION_INK: Record<HiringDecision, string> = {
  */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <span className="mr-5 mb-1 inline-flex min-w-0 items-baseline last:mr-0">
-      <span className="text-caption text-muted mr-1.5 uppercase">{label}</span>
-      {children}
+    <span className="mr-6 mb-1 inline-block whitespace-nowrap last:mr-0">
+      <span className="text-caption text-muted uppercase mr-3">
+        {label}
+      </span>
+      {" "}
+      <span className="relative z-10">
+        {children}
+      </span>
     </span>
   );
 }
-
 export function McpActivityFeed() {
   const { data, error, lastUpdatedAt, refetch } = usePolling(getMcpActivity);
 
@@ -124,7 +128,7 @@ export function McpActivityFeed() {
                       that fused the label and its value inside `Field` — margins
                       on each `Field` do the separating instead, so the space
                       cannot be lost to the same collapse. */}
-                  <span className="flex flex-wrap items-baseline">
+                  <div className="flex flex-wrap items-baseline">
                     <Field label={ACTIVITY.labels.querying}>
                       <MachineValue value={entry.queryingAgent} label="querying agent" />
                     </Field>
@@ -149,7 +153,7 @@ export function McpActivityFeed() {
                     <Field label={ACTIVITY.labels.source}>
                       <span className="text-muted">{ACTIVITY.sources[entry.source]}</span>
                     </Field>
-                  </span>
+                  </div>
                 </LogLine>
               ))}
             </div>
