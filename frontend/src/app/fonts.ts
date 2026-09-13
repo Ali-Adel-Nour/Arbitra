@@ -9,7 +9,7 @@
  * `--font-mono` resolve to real faces. Until then these are declared and unused,
  * which is expected.
  */
-import { Archivo, JetBrains_Mono } from 'next/font/google';
+import { Archivo, JetBrains_Mono, Orbitron } from 'next/font/google';
 
 /**
  * Archivo, for prose and interface text. The `wdth` axis is requested because
@@ -46,4 +46,24 @@ export const mono = JetBrains_Mono({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-jetbrains',
+});
+
+/**
+ * Orbitron, for the wordmark ALONE — not exported as a `--variable` and not
+ * consumed through the type scale, because it is not a type-scale step. It is
+ * the one place the interface matches the logo's own lettering: the mark's
+ * chamfered, geometric strokes, echoed in the "Arbitra" text that sits beside
+ * it in the masthead.
+ *
+ * Applied via `wordmark.className` directly at the one call site rather than
+ * through a CSS custom property, on purpose. A `--font-wordmark` token would
+ * need a confinement rule of its own the moment a second file reached for it,
+ * and this mark has exactly one legitimate use. Scoping it to a generated
+ * class instead makes "one file, one use" the default rather than something
+ * `check-design.mjs` has to enforce.
+ */
+export const wordmark = Orbitron({
+  subsets: ['latin'],
+  weight: ['700'],
+  display: 'swap',
 });
