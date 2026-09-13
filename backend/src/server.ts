@@ -556,7 +556,15 @@ export const server = createServer(
           sendJson(response, 404, { error: "Judgment not found" });
           return;
         }
-        sendJson(response, 200, { ...record, verified: verifyVerdictHash(record) });
+        const rubricHash = hashCanonicalValue(record.acceptanceCriteria);
+        const deliverableHash = hashCanonicalValue(record.deliverable);
+        
+        sendJson(response, 200, { 
+          ...record, 
+          rubricHash, 
+          deliverableHash, 
+          verified: verifyVerdictHash(record) 
+        });
       } catch (error) {
         sendJson(response, 500, {
           error: error instanceof Error ? error.message : "Unable to read judgment",
