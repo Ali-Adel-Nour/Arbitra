@@ -21,7 +21,7 @@ export const settlementGateway = { settleEscrow };
 const PORT = Number(process.env.PORT ?? 3000);
 
 // Cache on-chain deal info to prevent RPC rate limits when frontend polls /api/deals
-const onChainDealCache = new Map<string, { amount: string; token: string }>();
+const onChainDealCache = new Map<string, { amount: string; token: string; criteriaHash: string; deliverableHash: string; verdictReasoningHash: string }>();
 
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
@@ -286,6 +286,9 @@ export const server = createServer(
           validDealsPromises.push(async () => {
             let amount = "10000000"; // Fallback 10 USDC
             let token = "0x3600000000000000000000000000000000000000";
+            let criteriaHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
+            let deliverableHash = "";
+            let onChainVerdictReasoningHash = "";
             
             // Skip dummy/mock deal IDs to prevent unnecessary RPC calls
             if (!dealId.startsWith("0x9999999990123456")) {
@@ -294,17 +297,23 @@ export const server = createServer(
                 const cached = onChainDealCache.get(dealId)!;
                 amount = cached.amount;
                 token = cached.token;
+                criteriaHash = cached.criteriaHash;
+                deliverableHash = cached.deliverableHash;
+                onChainVerdictReasoningHash = cached.verdictReasoningHash;
               } else {
                 try {
                   const onChainDeal = await escrowContract.escrows(dealId);
                   if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
                     amount = onChainDeal.amount.toString();
                     token = onChainDeal.token;
+                    criteriaHash = onChainDeal.criteriaHash || criteriaHash;
+                    deliverableHash = onChainDeal.deliverableHash || "";
+                    onChainVerdictReasoningHash = onChainDeal.verdictReasoningHash || "";
                     // Cache successful results indefinitely (amounts don't change)
-                    onChainDealCache.set(dealId, { amount, token });
+                    onChainDealCache.set(dealId, { amount, token, criteriaHash, deliverableHash, verdictReasoningHash: onChainVerdictReasoningHash });
                   } else {
                     // Cache the fallback to prevent retrying a missing contract every 4s
-                    onChainDealCache.set(dealId, { amount, token });
+                    onChainDealCache.set(dealId, { amount, token, criteriaHash, deliverableHash, verdictReasoningHash: onChainVerdictReasoningHash });
                   }
                 } catch (err: any) {
                   const reason = err.code || (err instanceof Error ? err.message : "Unknown error");
@@ -313,7 +322,7 @@ export const server = createServer(
                     console.warn(`Failed to fetch on-chain amount for deal: ${dealId} (${reason})`);
                   }
                   // Cache the fallback on failure to avoid spamming the failing RPC
-                  onChainDealCache.set(dealId, { amount, token });
+                  onChainDealCache.set(dealId, { amount, token, criteriaHash, deliverableHash, verdictReasoningHash: onChainVerdictReasoningHash });
                 }
               }
             }
@@ -324,11 +333,11 @@ export const server = createServer(
               seller,
               token,
               amount,
-              criteriaHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+              criteriaHash,
               deadline: d.deadline ? d.deadline.toISOString() : new Date().toISOString(),
               state,
-              deliverableHash: null,
-              verdictReasoningHash,
+              deliverableHash: deliverableHash || null,
+              verdictReasoningHash: onChainVerdictReasoningHash || verdictReasoningHash,
               ...(judgeInFlight ? { judgeRequestedAt: d.createdAt.toISOString() } : {})
             };
           });
@@ -401,23 +410,32 @@ export const server = createServer(
 
         let amount = "10000000";
         let token = "0x3600000000000000000000000000000000000000";
+        let criteriaHash = "0x0000000000000000000000000000000000000000000000000000000000000000";
+        let deliverableHash = "";
+        let onChainVerdictReasoningHash = "";
         
         if (onChainDealCache.has(dealId)) {
           const cached = onChainDealCache.get(dealId)!;
           amount = cached.amount;
           token = cached.token;
+          criteriaHash = cached.criteriaHash;
+          deliverableHash = cached.deliverableHash;
+          onChainVerdictReasoningHash = cached.verdictReasoningHash;
         } else {
           try {
             const onChainDeal = await escrowContract.escrows(dealId);
             if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
               amount = onChainDeal.amount.toString();
               token = onChainDeal.token;
-              onChainDealCache.set(dealId, { amount, token });
+              criteriaHash = onChainDeal.criteriaHash || criteriaHash;
+              deliverableHash = onChainDeal.deliverableHash || "";
+              onChainVerdictReasoningHash = onChainDeal.verdictReasoningHash || "";
+              onChainDealCache.set(dealId, { amount, token, criteriaHash, deliverableHash, verdictReasoningHash: onChainVerdictReasoningHash });
             } else {
-              onChainDealCache.set(dealId, { amount, token });
+              onChainDealCache.set(dealId, { amount, token, criteriaHash, deliverableHash, verdictReasoningHash: onChainVerdictReasoningHash });
             }
           } catch (err: any) {
-            onChainDealCache.set(dealId, { amount, token });
+            onChainDealCache.set(dealId, { amount, token, criteriaHash, deliverableHash, verdictReasoningHash: onChainVerdictReasoningHash });
           }
         }
 
@@ -427,11 +445,11 @@ export const server = createServer(
           seller,
           token,
           amount,
-          criteriaHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+          criteriaHash,
           deadline: d.deadline ? d.deadline.toISOString() : new Date().toISOString(),
           state,
-          deliverableHash: null,
-          verdictReasoningHash,
+          deliverableHash: deliverableHash || null,
+          verdictReasoningHash: onChainVerdictReasoningHash || verdictReasoningHash,
           ...(judgeInFlight ? { judgeRequestedAt: d.createdAt.toISOString() } : {})
         });
       } catch (error) {
