@@ -8,9 +8,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "npm run build && mocha",
-    "prisma:generate": "set DATABASE_URL=file:./dev.db&& node ../node_modules/prisma/build/index.js generate",
-    "prisma:migrate": "set DATABASE_URL=file:./dev.db&& node ../node_modules/prisma/build/index.js migrate dev --name init",
-    "prisma:deploy": "set DATABASE_URL=file:./dev.db&& node ../node_modules/prisma/build/index.js migrate deploy"
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "prisma:deploy": "prisma migrate deploy"
   },
   "dependencies": {
     "@prisma/client": "^6.16.2",
