@@ -10,7 +10,13 @@ import {
 } from "./ai-judge/index.js";
 import { settleEscrow } from "./oracle.js";
 import { getReputation, getMcpActivity } from "./reputation.js";
-import { markDealResolved, persistPreimage, readAllPersistedDeals } from "./persistence.js";
+import {
+  markDealResolved,
+  persistPreimage,
+  readAllPersistedDeals,
+  readOnePersistedDeal,
+  type PersistedDeal,
+} from "./persistence.js";
 import { readPersistedJudgment } from "./persistence.js";
 import { verifyVerdictHash, hashCanonicalValue } from "./ai-judge/verdict.js";
 import { startResilientOracle } from "./blockchain/eventListener.js";
@@ -22,6 +28,108 @@ const PORT = Number(process.env.PORT ?? 3000);
 
 // Cache on-chain deal info to prevent RPC rate limits when frontend polls /api/deals
 const onChainDealCache = new Map<string, { amount: string; token: string }>();
+
+/** 32 bytes of non-zero hex — what the frontend's `isNonZeroHex32` guard requires. */
+function isValidDealId(dealId: string): boolean {
+  return /^0x[0-9a-fA-F]{64}$/.test(dealId) && !/^0x0{64}$/.test(dealId);
+}
+
+/** 20 bytes of hex — what the frontend's `isAddress` guard requires. */
+function isValidAddress(value: string): boolean {
+  return /^0x[0-9a-fA-F]{40}$/.test(value);
+}
+
+/**
+ * A `PersistedDeal` row, shaped into the `EscrowDeal` the frontend's
+ * `isEscrowDeal` guard checks every response against.
+ *
+ * ONE FUNCTION FOR BOTH ROUTES, ON PURPOSE. `GET /api/deals` (the list) and
+ * `GET /api/deals/:dealId` (one record — read the moment a docket row is
+ * clicked) used to duplicate this shaping, and the single-item route did not
+ * exist at all: clicking into a deal called a path the backend had never
+ * implemented, so every attempt to open a verdict record 404'd. Sharing this
+ * function is what keeps the two routes from drifting into two different
+ * answers about the same deal.
+ *
+ * Returns `null` for a row that is not addressable under the frontend's own
+ * rules — a mock slug like `deal-fail`, or a zero deal id — rather than
+ * shaping it into a value the guard will reject anyway. The list route drops
+ * such rows; the single-deal route below turns a `null` here into a 404,
+ * which is the honest answer for an identifier that was never valid.
+ */
+async function shapeDealForFrontend(
+  d: PersistedDeal
+): Promise<Record<string, unknown> | null> {
+  const dealId = d.dealId.trim();
+  if (!isValidDealId(dealId)) return null;
+
+  let state = d.state || "Created";
+  if (state === "JUDGED") state = "Submitted";
+  if (state === "RESOLVED") {
+    state = d.aiVerdict ? "ResolvedSuccess" : "ResolvedRefund";
+  }
+
+  let verdictReasoningHash = null;
+  if (d.resolvedTxHash && /^0x[0-9a-fA-F]{64}$/.test(d.resolvedTxHash)) {
+    verdictReasoningHash = d.resolvedTxHash;
+  }
+
+  const buyer =
+    d.buyerAddress && isValidAddress(d.buyerAddress)
+      ? d.buyerAddress
+      : "0x0000000000000000000000000000000000000000";
+  const seller =
+    d.sellerAddress && isValidAddress(d.sellerAddress)
+      ? d.sellerAddress
+      : "0x0000000000000000000000000000000000000000";
+
+  // judgeRequestedAt means "in flight NOW", not "was requested once". Only set
+  // it when the deal is awaiting a verdict that hasn't arrived yet.
+  const judgeInFlight =
+    d.state === "JUDGED" && d.aiVerdict === null && state === "Submitted";
+
+  let amount = "10000000"; // Fallback 10 USDC
+  let token = "0x3600000000000000000000000000000000000000";
+
+  if (!dealId.startsWith("0x9999999990123456")) {
+    if (onChainDealCache.has(dealId)) {
+      const cached = onChainDealCache.get(dealId)!;
+      amount = cached.amount;
+      token = cached.token;
+    } else {
+      try {
+        const onChainDeal = await escrowContract.escrows(dealId);
+        if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
+          amount = onChainDeal.amount.toString();
+          token = onChainDeal.token;
+          onChainDealCache.set(dealId, { amount, token });
+        } else {
+          onChainDealCache.set(dealId, { amount, token });
+        }
+      } catch (err: any) {
+        const reason = err.code || (err instanceof Error ? err.message : "Unknown error");
+        if (reason !== "CALL_EXCEPTION") {
+          console.warn(`Failed to fetch on-chain amount for deal: ${dealId} (${reason})`);
+        }
+        onChainDealCache.set(dealId, { amount, token });
+      }
+    }
+  }
+
+  return {
+    dealId,
+    buyer,
+    seller,
+    token,
+    amount,
+    criteriaHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+    deadline: d.deadline ? d.deadline.toISOString() : new Date().toISOString(),
+    state,
+    deliverableHash: null,
+    verdictReasoningHash,
+    ...(judgeInFlight ? { judgeRequestedAt: d.createdAt.toISOString() } : {}),
+  };
+}
 
 function setCorsHeaders(response: ServerResponse): void {
   response.setHeader("Access-Control-Allow-Origin", "*");
@@ -244,102 +352,27 @@ export const server = createServer(
     if (request.method === "GET" && request.url === "/api/deals") {
       try {
         const persistedDeals = await readAllPersistedDeals();
-        
-        const validDealsPromises = [];
+
+        // Deduplicate by trimmed dealId before shaping, so a duplicate row
+        // cannot produce a duplicate React key on the docket.
         const seenIds = new Set<string>();
+        const toShape: PersistedDeal[] = [];
         for (const d of persistedDeals) {
           const dealId = d.dealId.trim();
-          // The frontend requires dealId to be exactly a non-zero 32-byte hex.
-          if (!/^0x[0-9a-fA-F]{64}$/.test(dealId) || /^0x0{64}$/.test(dealId)) {
-            continue; // Skip mock slugs like "deal-fail" or invalid formats
-          }
-          // Deduplicate by trimmed dealId (prevents React duplicate-key errors)
           if (seenIds.has(dealId)) continue;
           seenIds.add(dealId);
-
-          let state = d.state || "Created";
-          if (state === "JUDGED") state = "Submitted";
-          if (state === "RESOLVED") {
-            state = d.aiVerdict ? "ResolvedSuccess" : "ResolvedRefund";
-          }
-
-          let verdictReasoningHash = null;
-          if (d.resolvedTxHash && /^0x[0-9a-fA-F]{64}$/.test(d.resolvedTxHash)) {
-            verdictReasoningHash = d.resolvedTxHash;
-          }
-
-          const isValidAddress = (val: string) => /^0x[0-9a-fA-F]{40}$/.test(val);
-          const buyer = (d.buyerAddress && isValidAddress(d.buyerAddress)) 
-            ? d.buyerAddress 
-            : "0x0000000000000000000000000000000000000000";
-          const seller = (d.sellerAddress && isValidAddress(d.sellerAddress)) 
-            ? d.sellerAddress 
-            : "0x0000000000000000000000000000000000000000";
-
-          // judgeRequestedAt means "in flight NOW", not "was requested once".
-          // Only set it when the deal is awaiting a verdict that hasn't arrived
-          // yet. A JUDGED deal with aiVerdict already set has finished
-          // deliberating — the oracle just hasn't settled it on-chain yet.
-          const judgeInFlight =
-            d.state === "JUDGED" && d.aiVerdict === null && state === "Submitted";
-
-          validDealsPromises.push(async () => {
-            let amount = "10000000"; // Fallback 10 USDC
-            let token = "0x3600000000000000000000000000000000000000";
-            
-            // Skip dummy/mock deal IDs to prevent unnecessary RPC calls
-            if (!dealId.startsWith("0x9999999990123456")) {
-              // Read from cache first to avoid RPC rate limits
-              if (onChainDealCache.has(dealId)) {
-                const cached = onChainDealCache.get(dealId)!;
-                amount = cached.amount;
-                token = cached.token;
-              } else {
-                try {
-                  const onChainDeal = await escrowContract.escrows(dealId);
-                  if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
-                    amount = onChainDeal.amount.toString();
-                    token = onChainDeal.token;
-                    // Cache successful results indefinitely (amounts don't change)
-                    onChainDealCache.set(dealId, { amount, token });
-                  } else {
-                    // Cache the fallback to prevent retrying a missing contract every 4s
-                    onChainDealCache.set(dealId, { amount, token });
-                  }
-                } catch (err: any) {
-                  const reason = err.code || (err instanceof Error ? err.message : "Unknown error");
-                  // Only log if it's an unexpected error, not just a missing contract (CALL_EXCEPTION)
-                  if (reason !== "CALL_EXCEPTION") {
-                    console.warn(`Failed to fetch on-chain amount for deal: ${dealId} (${reason})`);
-                  }
-                  // Cache the fallback on failure to avoid spamming the failing RPC
-                  onChainDealCache.set(dealId, { amount, token });
-                }
-              }
-            }
-
-            return {
-              dealId,
-              buyer,
-              seller,
-              token,
-              amount,
-              criteriaHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
-              deadline: d.deadline ? d.deadline.toISOString() : new Date().toISOString(),
-              state,
-              deliverableHash: null,
-              verdictReasoningHash,
-              ...(judgeInFlight ? { judgeRequestedAt: d.createdAt.toISOString() } : {})
-            };
-          });
+          toShape.push(d);
         }
-        
-        // Execute promises in chunks of 5 to avoid RPC rate limits
-        const validDeals = [];
-        for (let i = 0; i < validDealsPromises.length; i += 5) {
-          const chunk = validDealsPromises.slice(i, i + 5);
-          const results = await Promise.all(chunk.map((fn) => fn()));
-          validDeals.push(...results);
+
+        // Shaped in chunks of 5 to avoid RPC rate limits — each shape may read
+        // on-chain amount data.
+        const validDeals: Record<string, unknown>[] = [];
+        for (let i = 0; i < toShape.length; i += 5) {
+          const chunk = toShape.slice(i, i + 5);
+          const results = await Promise.all(chunk.map(shapeDealForFrontend));
+          for (const shaped of results) {
+            if (shaped !== null) validDeals.push(shaped);
+          }
         }
 
         sendJson(response, 200, {
@@ -349,6 +382,57 @@ export const server = createServer(
       } catch (error) {
         sendJson(response, 500, {
           error: error instanceof Error ? error.message : "Unable to read deals",
+        });
+      }
+      return;
+    }
+
+    /**
+     * `GET /api/deals/:dealId` — one deal, read the moment a docket row is
+     * clicked (`VerdictRecord`'s hook calls this via `getDeal`).
+     *
+     * THIS ROUTE DID NOT EXIST. `/api/deals` only ever served the list, so
+     * every attempt to open a verdict record — the docket's whole point —
+     * fell through to the final 404 handler. Checked before `/api/verify/`
+     * and `/api/judgments/`, which are prefix-matched and would otherwise
+     * need this exact path excluded from their `startsWith` checks.
+     */
+    if (request.method === "GET" && request.url?.startsWith("/api/deals/")) {
+      let dealId: string;
+      try {
+        const path = new URL(request.url, "http://localhost").pathname;
+        dealId = decodeURIComponent(path.slice("/api/deals/".length));
+      } catch {
+        sendJson(response, 400, { error: "Deal ID must be URL encoded" });
+        return;
+      }
+
+      if (!dealId.trim()) {
+        sendJson(response, 400, { error: "Deal ID is required" });
+        return;
+      }
+
+      try {
+        const persisted = await readOnePersistedDeal(dealId.trim());
+        if (persisted === null) {
+          sendJson(response, 404, { error: "Deal not found" });
+          return;
+        }
+
+        const shaped = await shapeDealForFrontend(persisted);
+        if (shaped === null) {
+          // A row exists but is not addressable under the frontend's own
+          // rules — e.g. a mock slug or a zero deal id. The honest answer for
+          // an identifier that was never valid is the same 404 a missing row
+          // gets, not a 200 carrying a value the guard would reject anyway.
+          sendJson(response, 404, { error: "Deal not found" });
+          return;
+        }
+
+        sendJson(response, 200, shaped);
+      } catch (error) {
+        sendJson(response, 500, {
+          error: error instanceof Error ? error.message : "Unable to read deal",
         });
       }
       return;

@@ -129,6 +129,21 @@ export async function readAllPersistedDeals(): Promise<PersistedDeal[]> {
   });
 }
 
+/**
+ * One deal by its identifier, or `null` if no row exists under it.
+ *
+ * The single-deal counterpart to `readAllPersistedDeals`. `GET /api/deals`
+ * (the list) and `GET /api/deals/:dealId` (one record, read when a docket row
+ * is clicked) both need the same shaping applied to a `PersistedDeal` — see
+ * `shapeDealForFrontend` in `server.ts` — and this is what the single-item
+ * route reads before shaping.
+ */
+export async function readOnePersistedDeal(
+  dealId: string
+): Promise<PersistedDeal | null> {
+  return prisma.escrowDeal.findUnique({ where: { dealId } });
+}
+
 function parseAcceptanceCriteria(criteriaText: string | null): string[] {
   if (!criteriaText) return [];
 

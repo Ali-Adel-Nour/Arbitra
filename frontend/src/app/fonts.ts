@@ -20,13 +20,19 @@ import { Archivo, JetBrains_Mono } from 'next/font/google';
 export const grotesk = Archivo({
   subsets: ['latin'],
   display: 'swap',
-  // `wdth` for the ruling step's 96% stretch. `wght` is supplied by default for
-  // a variable font, and the scale leans on it hard in both directions: body
-  // text sits at 420 rather than 400 to hold its optical weight against
-  // halation, while the display and ruling steps run at 350 and 300, because
-  // light-on-dark type gains apparent weight and a display face that reads
-  // correct on paper reads heavy and smeared once inverted.
-  axes: ['wdth', 'wght'],
+  // `wdth` for the ruling step's 96% stretch — the only ADDITIONAL axis this
+  // needs. `wght` is not listed here because a variable font already carries
+  // its full weight range by default; `axes` is only for axes beyond that
+  // default, and Next's type for Archivo does not accept `wght` as one — it
+  // is not a valid member of the additional-axes list, which is exactly the
+  // type error this caused. The scale still leans on weight hard in both
+  // directions: body text sits at 420 rather than 400 to hold its optical
+  // weight against halation, while the display and ruling steps run at 350
+  // and 300, because light-on-dark type gains apparent weight and a display
+  // face that reads correct on paper reads heavy and smeared once inverted.
+  // None of that requires `wght` in this array — it works because the
+  // default variable range already covers it.
+  axes: ['wdth'],
   variable: '--font-grotesk',
 });
 
