@@ -354,6 +354,95 @@ export const server = createServer(
       return;
     }
 
+    if (request.method === "GET" && request.url?.startsWith("/api/deals/")) {
+      let dealId: string;
+      try {
+        const path = new URL(request.url, "http://localhost").pathname;
+        dealId = decodeURIComponent(path.slice("/api/deals/".length));
+      } catch {
+        sendJson(response, 400, { success: false, error: "Deal ID must be URL encoded" });
+        return;
+      }
+
+      if (!dealId.trim()) {
+        sendJson(response, 400, { success: false, error: "Deal ID is required" });
+        return;
+      }
+
+      try {
+        const persistedDeals = await readAllPersistedDeals();
+        const d = persistedDeals.find((deal) => deal.dealId.toLowerCase() === dealId.toLowerCase());
+
+        if (!d) {
+          sendJson(response, 404, { success: false, error: "Deal not found" });
+          return;
+        }
+
+        let state = d.state || "Created";
+        if (state === "JUDGED") state = "Submitted";
+        if (state === "RESOLVED") {
+          state = d.aiVerdict ? "ResolvedSuccess" : "ResolvedRefund";
+        }
+
+        let verdictReasoningHash = null;
+        if (d.resolvedTxHash && /^0x[0-9a-fA-F]{64}$/.test(d.resolvedTxHash)) {
+          verdictReasoningHash = d.resolvedTxHash;
+        }
+
+        const isValidAddress = (val: string) => /^0x[0-9a-fA-F]{40}$/.test(val);
+        const buyer = (d.buyerAddress && isValidAddress(d.buyerAddress)) 
+          ? d.buyerAddress 
+          : "0x0000000000000000000000000000000000000000";
+        const seller = (d.sellerAddress && isValidAddress(d.sellerAddress)) 
+          ? d.sellerAddress 
+          : "0x0000000000000000000000000000000000000000";
+
+        const judgeInFlight = d.state === "JUDGED" && d.aiVerdict === null && state === "Submitted";
+
+        let amount = "10000000";
+        let token = "0x3600000000000000000000000000000000000000";
+        
+        if (onChainDealCache.has(dealId)) {
+          const cached = onChainDealCache.get(dealId)!;
+          amount = cached.amount;
+          token = cached.token;
+        } else {
+          try {
+            const onChainDeal = await escrowContract.escrows(dealId);
+            if (onChainDeal && onChainDeal.amount !== undefined && onChainDeal.amount > 0n) {
+              amount = onChainDeal.amount.toString();
+              token = onChainDeal.token;
+              onChainDealCache.set(dealId, { amount, token });
+            } else {
+              onChainDealCache.set(dealId, { amount, token });
+            }
+          } catch (err: any) {
+            onChainDealCache.set(dealId, { amount, token });
+          }
+        }
+
+        sendJson(response, 200, {
+          dealId,
+          buyer,
+          seller,
+          token,
+          amount,
+          criteriaHash: "0x0000000000000000000000000000000000000000000000000000000000000000",
+          deadline: d.deadline ? d.deadline.toISOString() : new Date().toISOString(),
+          state,
+          deliverableHash: null,
+          verdictReasoningHash,
+          ...(judgeInFlight ? { judgeRequestedAt: d.createdAt.toISOString() } : {})
+        });
+      } catch (error) {
+        sendJson(response, 500, {
+          success: false, 
+          error: error instanceof Error ? error.message : "Unable to read deal"
+        });
+      }
+      return;
+    }
+
     if (request.method === "GET" && request.url === "/api/agents") {
       try {
         const persistedDeals = await readAllPersistedDeals();
