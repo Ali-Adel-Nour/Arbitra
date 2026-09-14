@@ -9,6 +9,7 @@ primary_region = "iad"
 [env]
   PORT = "3000"
   DATABASE_URL = "file:/data/production.db"
+  HOST = "0.0.0.0"
 
 [mounts]
   source = "arbiter_data"
