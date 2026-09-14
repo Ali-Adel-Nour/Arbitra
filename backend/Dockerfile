@@ -12,6 +12,9 @@ RUN npm install
 
 COPY . .
 
+# Remove local .env and dev databases to prevent them from breaking the production deployment
+RUN rm -f .env prisma/*.db *.db
+
 # Generate prisma client
 RUN npx prisma generate
 
