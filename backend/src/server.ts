@@ -51,8 +51,15 @@ async function readJsonBody(
   request: IncomingMessage
 ): Promise<unknown> {
   const chunks: Buffer[] = [];
+  let totalLength = 0;
+  const MAX_SIZE = 1024 * 1024; // 1 MB limit
 
   for await (const chunk of request) {
+    totalLength += chunk.length;
+    if (totalLength > MAX_SIZE) {
+      request.destroy();
+      throw new Error("Payload too large");
+    }
     chunks.push(Buffer.from(chunk));
   }
 
@@ -701,108 +708,6 @@ export const server = createServer(
         sendJson(response, isBadRequestError(error) ? 400 : 502, {
           success: false,
           error: `AI Judge settlement failed: ${message}`,
-        });
-      }
-
-      return;
-    }
-
-    if (request.method === "POST" && request.url === "/judge") {
-      try {
-        const body = await readJsonBody(request);
-
-        if (!validateJudgeInput(body)) {
-          sendJson(response, 400, {
-            success: false,
-            error:
-              "Invalid input. Expected task, acceptanceCriteria[], and deliverable.",
-          });
-          return;
-        }
-
-        const result = await judgeDeliverable({
-          task: body.task,
-          acceptanceCriteria: body.acceptanceCriteria,
-          deliverable: body.deliverable,
-        });
-
-        sendJson(response, 200, {
-          success: true,
-          result,
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unknown server error";
-
-        sendJson(response, 500, {
-          success: false,
-          error: message,
-        });
-      }
-
-      return;
-    }
-
-    if (
-      request.method === "POST" &&
-      request.url === "/judge-and-settle"
-    ) {
-      if (!process.env.ARBITRA_INTERNAL_KEY) {
-        sendJson(response, 503, {
-          success: false,
-          error: "Settlement endpoint is not configured",
-        });
-        return;
-      }
-
-      if (!isAuthorizedSettlementRequest(request)) {
-        sendJson(response, 401, {
-          success: false,
-          error: "Unauthorized settlement request",
-        });
-        return;
-      }
-
-      try {
-        const body = await readJsonBody(request);
-
-        if (!validateSettlementInput(body)) {
-          sendJson(response, 400, {
-            success: false,
-            error:
-              "Invalid input. Expected dealId, task, acceptanceCriteria[], and deliverable.",
-          });
-          return;
-        }
-
-        const result = await judgeDeliverable({
-          task: body.task,
-          acceptanceCriteria: body.acceptanceCriteria,
-          deliverable: body.deliverable,
-        });
-
-        const settlement = await settleEscrow(
-          body.dealId,
-          result.approved,
-          result.reasoning
-        );
-
-        sendJson(response, 200, {
-          success: true,
-          result,
-          settlement,
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Unknown server error";
-
-        sendJson(response, 500, {
-          success: false,
-          error: message,
         });
       }
 
