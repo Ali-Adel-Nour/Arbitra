@@ -18,6 +18,9 @@ RUN npx prisma generate
 # Install typescript globally to fix 'tsc: not found'
 RUN npm install -g typescript
 
+# Install missing type definitions
+RUN npm install -D @types/node @types/mocha
+
 # Build typescript
 RUN npm run build
 
