@@ -158,7 +158,7 @@ export const ENDPOINTS = {
   health: { path: () => `/health`, origin: 'backend' },
 
   /** `POST /api/judge` → `AuditableVerdict`. Judges without settling. */
-  judge: { path: () => `/api/judge`, origin: 'backend' },
+  judge: { path: () => `/api/judge`, origin: 'local', pinned: true },
 
   /** `GET /api/reputation/:agent` → `ReputationSummary`. Either identifier form. */
   reputation: {
