@@ -15,6 +15,9 @@ COPY . .
 # Generate prisma client
 RUN npx prisma generate
 
+# Install typescript globally to fix 'tsc: not found'
+RUN npm install -g typescript
+
 # Build typescript
 RUN npm run build
 
