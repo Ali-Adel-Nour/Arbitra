@@ -1,0 +1,24 @@
+# fly.toml app configuration file generated for arbiter-backend
+
+app = "arbiter-backend"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  DATABASE_URL = "file:/data/production.db"
+
+[mounts]
+  source = "arbiter_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
