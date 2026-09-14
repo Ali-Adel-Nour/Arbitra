@@ -856,9 +856,10 @@ export const server = createServer(
 );
 
 if (process.env.ARBITRA_NO_LISTEN !== "true") {
-  server.listen(PORT, "0.0.0.0", () => {
+  const HOST = process.env.HOST || "127.0.0.1";
+  server.listen(PORT, HOST, () => {
     console.log(
-      `Arbitra AI Judge API listening on http://0.0.0.0:${PORT}`
+      `Arbitra AI Judge API listening on http://${HOST}:${PORT}`
     );
   });
 
