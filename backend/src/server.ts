@@ -24,7 +24,8 @@ const PORT = Number(process.env.PORT ?? 3000);
 const onChainDealCache = new Map<string, { amount: string; token: string; criteriaHash: string; deliverableHash: string; verdictReasoningHash: string }>();
 
 function setCorsHeaders(response: ServerResponse): void {
-  response.setHeader("Access-Control-Allow-Origin", "*");
+  const origin = process.env.FRONTEND_URL || "http://localhost:3001";
+  response.setHeader("Access-Control-Allow-Origin", origin);
   response.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   response.setHeader(
     "Access-Control-Allow-Headers",
@@ -215,6 +216,14 @@ export const server = createServer(
     }
 
     if (request.method === "POST" && request.url === "/api/judge") {
+      if (!isAuthorizedSettlementRequest(request)) {
+        sendJson(response, 401, {
+          success: false,
+          error: "Unauthorized judge request",
+        });
+        return;
+      }
+
       try {
         const body = await readJsonBody(request);
 
@@ -543,6 +552,34 @@ export const server = createServer(
           parsedCriteria = criteria;
         }
 
+        let onChainDeal;
+        try {
+          onChainDeal = await escrowContract.escrows(dealId);
+        } catch (err) {
+          console.warn(`Failed to fetch deal ${dealId} from chain`);
+        }
+
+        if (!onChainDeal || onChainDeal.amount === 0n) {
+          sendJson(response, 404, { error: "Deal not found on-chain" });
+          return;
+        }
+
+        if (parsedCriteria !== undefined) {
+          const computedCriteriaHash = hashCanonicalValue(parsedCriteria);
+          if (computedCriteriaHash !== onChainDeal.criteriaHash) {
+            sendJson(response, 403, { error: "Criteria hash mismatch: the text does not match the on-chain commitment." });
+            return;
+          }
+        }
+
+        if (typeof deliverable === "string") {
+          const computedDeliverableHash = hashCanonicalValue(deliverable);
+          if (computedDeliverableHash !== onChainDeal.deliverableHash) {
+            sendJson(response, 403, { error: "Deliverable hash mismatch: the text does not match the on-chain commitment." });
+            return;
+          }
+        }
+
         await persistPreimage(dealId, parsedCriteria, typeof deliverable === "string" ? deliverable : undefined);
         sendJson(response, 200, { success: true });
       } catch (error) {
@@ -620,6 +657,30 @@ export const server = createServer(
             error:
               "Invalid input. Expected dealId, acceptanceCriteria[], deliverable, and a future deadline.",
           });
+          return;
+        }
+
+        let onChainDeal;
+        try {
+          onChainDeal = await escrowContract.escrows(body.dealId);
+        } catch (err) {
+          console.warn(`Failed to fetch deal ${body.dealId} from chain`);
+        }
+
+        if (!onChainDeal || onChainDeal.amount === 0n) {
+          sendJson(response, 404, { success: false, error: "Deal not found on-chain" });
+          return;
+        }
+
+        const computedCriteriaHash = hashCanonicalValue(body.acceptanceCriteria);
+        if (computedCriteriaHash !== onChainDeal.criteriaHash) {
+          sendJson(response, 403, { success: false, error: "Criteria hash mismatch: the text does not match the on-chain commitment." });
+          return;
+        }
+
+        const computedDeliverableHash = hashCanonicalValue(body.deliverable);
+        if (computedDeliverableHash !== onChainDeal.deliverableHash) {
+          sendJson(response, 403, { success: false, error: "Deliverable hash mismatch: the text does not match the on-chain commitment." });
           return;
         }
 
