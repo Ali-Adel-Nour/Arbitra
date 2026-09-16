@@ -27,12 +27,16 @@ contract ArbiterEscrowV2 {
     error ScoreExceeds100();
     error P256PrecompileFailed();
     error InvalidSignature();
+    error EscrowNotExpired();
+    error OnlyBuyer();
+    error InvalidDeadline();
 
     struct Deal {
         address buyer;
         address seller;
         IERC20 token;
         uint256 amount;
+        uint256 deadline;
         bool isResolved;
     }
 
@@ -45,6 +49,7 @@ contract ArbiterEscrowV2 {
         uint256 amount
     );
     event EscrowResolved(bytes32 indexed dealId, bool success);
+    event EscrowRefunded(bytes32 indexed dealId);
 
    constructor(
         address _validationRegistry, 
@@ -68,17 +73,20 @@ contract ArbiterEscrowV2 {
         bytes32 dealId,
         address seller,
         IERC20 token,
-        uint256 amount
+        uint256 amount,
+        uint256 deadline
     ) external {
         if (deals[dealId].buyer != address(0)) revert DealExists();
         if (seller == address(0)) revert InvalidSeller();
         if (amount == 0) revert ZeroAmount();
+        if (deadline <= block.timestamp) revert InvalidDeadline();
 
         deals[dealId] = Deal({
             buyer: msg.sender,
             seller: seller,
             token: token,
             amount: amount,
+            deadline: deadline,
             isResolved: false
         });
 
@@ -149,5 +157,22 @@ contract ArbiterEscrowV2 {
         reputationRegistry.logFeedback(deal.seller, dealId, score, reasoning);
 
         emit EscrowResolved(dealId, success);
+    }
+
+    /**
+     * @notice Allows the buyer to reclaim funds if the escrow deadline has passed
+     * and the AI Oracle has not resolved it.
+     */
+    function refundEscrow(bytes32 dealId) external {
+        Deal storage deal = deals[dealId];
+        if (deal.buyer == address(0)) revert DealNotFound();
+        if (deal.buyer != msg.sender) revert OnlyBuyer();
+        if (deal.isResolved) revert AlreadyResolved();
+        if (block.timestamp <= deal.deadline) revert EscrowNotExpired();
+
+        deal.isResolved = true;
+        deal.token.safeTransfer(deal.buyer, deal.amount);
+
+        emit EscrowRefunded(dealId);
     }
 }

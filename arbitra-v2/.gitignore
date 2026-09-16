@@ -1,0 +1,45 @@
+# ========================
+# 🛑 CRITICAL SECURITY 
+# ========================
+.env
+.env.*
+*.pem
+*.key
+
+# ========================
+# 📦 Node Dependencies
+# ========================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ========================
+# 🛠️ Hardhat & Smart Contracts
+# ========================
+artifacts/
+cache/
+typechain-types/
+typechain/
+coverage/
+coverage.json
+gasReporterOutput.json
+
+# ========================
+# 🏗️ TypeScript Build Output
+# ========================
+dist/
+build/
+out/
+
+# ========================
+# 💻 OS & IDE Files
+# ========================
+.DS_Store
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
