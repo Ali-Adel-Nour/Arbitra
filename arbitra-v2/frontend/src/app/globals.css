@@ -1,0 +1,139 @@
+@import 'tailwindcss';
+
+/* ===========================================================================
+ * Arbitra design tokens — the sole token-declaration site in the application.
+ *
+ * A dark instrument panel over a court record. Near-black base, lifted panels,
+ * one saturated accent, generous padding, large light display type.
+ *
+ * Tailwind v4 is CSS-first: this file is the theme.
+ * ======================================================================== */
+
+@theme static {
+  --font-sans: var(--font-grotesk), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  /* Type scale */
+  --text-caption: 0.6875rem; 
+  --text-caption--line-height: 1rem; 
+  --text-caption--font-weight: 600;
+  --text-caption--letter-spacing: 0.1em;
+
+  --text-meta: 0.75rem;
+  --text-meta--line-height: 1.125rem;
+  --text-meta--font-weight: 400;
+  --text-meta--letter-spacing: 0.005em;
+
+  --text-record: 0.8125rem;
+  --text-record--line-height: 1.25rem;
+  --text-record--font-weight: 400;
+  --text-record--letter-spacing: 0;
+
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.5rem;
+  --text-body--font-weight: 420;
+  --text-body--letter-spacing: 0;
+
+  --text-lede: 1.125rem;
+  --text-lede--line-height: 1.75rem;
+  --text-lede--font-weight: 400;
+  --text-lede--letter-spacing: -0.006em;
+
+  --text-heading: 1.3125rem;
+  --text-heading--line-height: 1.75rem;
+  --text-heading--font-weight: 550;
+  --text-heading--letter-spacing: -0.01em;
+
+  --text-screen: clamp(1.5rem, 0.6964rem + 3.4286vw, 1.875rem);
+  --text-screen--line-height: 2.25rem;
+  --text-screen--font-weight: 500;
+  --text-screen--letter-spacing: -0.014em;
+
+  --text-display: clamp(1.875rem, 0.7679rem + 4.7619vw, 2.5rem);
+  --text-display--line-height: 2.75rem;
+  --text-display--font-weight: 350;
+  --text-display--letter-spacing: -0.018em;
+
+  --text-ruling: clamp(2.75rem, 0.5rem + 9.5238vw, 4rem);
+  --text-ruling--line-height: 1;
+  --text-ruling--font-weight: 300;
+  --text-ruling--letter-spacing: -0.022em;
+
+  --ruling-stretch: 96%;
+
+  /* Surfaces */
+  --base: #0a0c10;
+  --panel-1: #12151b;
+  --panel-2: #1a1e26;
+  --well: #0d1014;
+  --ruling-ground: #1b1e5c;
+
+  /* Text and borders */
+  --text-hi: #f2f4f8;
+  --text-primary: #dce0e8;
+  --text-muted: #98a0ae;
+  --border-rule: #6b7480;
+  --border-panel: #2a303a;
+
+  /* Accents */
+  --accent: #2563eb;
+  --accent-text: #7fb0ff;
+  --accent-2: #a78bfa;
+  --ruling-ink: #f5f7ff;
+
+  /* Tailwind colour namespace */
+  --color-base: var(--base);
+  --color-panel-1: var(--panel-1);
+  --color-panel-2: var(--panel-2);
+  --color-well: var(--well);
+  --color-ruling-ground: var(--ruling-ground);
+  --color-hi: var(--text-hi);
+  --color-primary: var(--text-primary);
+  --color-muted: var(--text-muted);
+  --color-rule: var(--border-rule);
+  --color-panel-edge: var(--border-panel);
+  --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-accent-2: var(--accent-2);
+  --color-ruling-ink: var(--ruling-ink);
+
+  /* States */
+  --state-paid: #3dd68c;
+  --state-paid-ground: #10251c;
+  --state-refunded: #4fb8f5;
+  --state-refunded-ground: #0e2233;
+  --state-deliberating: #e8b341;
+  --state-deliberating-ground: #2a2110;
+  --state-expired: #9aa3b2;
+  --state-expired-ground: #1d2028;
+  --state-tampered: #f87171;
+  --state-tampered-ground: #2a1414;
+
+  --color-state-paid: var(--state-paid);
+  --color-state-paid-ground: var(--state-paid-ground);
+  --color-state-refunded: var(--state-refunded);
+  --color-state-refunded-ground: var(--state-refunded-ground);
+  --color-state-deliberating: var(--state-deliberating);
+  --color-state-deliberating-ground: var(--state-deliberating-ground);
+  --color-state-expired: var(--state-expired);
+  --color-state-expired-ground: var(--state-expired-ground);
+  --color-state-tampered: var(--state-tampered);
+  --color-state-tampered-ground: var(--state-tampered-ground);
+
+  /* Radius */
+  --radius-panel: 12px;
+  --radius-control: 8px;
+  --radius-chip: 999px;
+}
+
+body {
+  background-color: var(--color-base);
+  color: var(--color-primary);
+}
+
+.gradient-heading {
+  background-image: linear-gradient(100deg, var(--accent-text), var(--accent-2));
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
