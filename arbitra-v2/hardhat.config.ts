@@ -24,6 +24,26 @@ const config: HardhatUserConfig = {
       accounts: process.env.OPERATOR_PRIVATE_KEY ? [process.env.OPERATOR_PRIVATE_KEY] : [],
     },
   },
+  sourcify: {
+    enabled: true,
+    apiUrl: "https://sourcify-api-monad.blockvision.org/",
+    browserUrl: "https://testnet.monadexplorer.com",
+  },
+  etherscan: {
+    apiKey: {
+      monadTestnet: "empty" 
+    },
+    customChains: [
+      {
+        network: "monadTestnet",
+        chainId: 10143,
+        urls: {
+          apiURL: "https://testnet.monadexplorer.com/api",
+          browserURL: "https://testnet.monadexplorer.com/"
+        }
+      }
+    ]
+  }
 };
 
 export default config;

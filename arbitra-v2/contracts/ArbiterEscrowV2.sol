@@ -44,9 +44,12 @@ contract ArbiterEscrowV2 {
 
     event EscrowCreated(
         bytes32 indexed dealId,
-        address buyer,
-        address seller,
-        uint256 amount
+        address indexed buyer,
+        address indexed seller,
+        address token,
+        uint256 amount,
+        uint256 deadline,
+        string acceptanceCriteria
     );
     event EscrowResolved(bytes32 indexed dealId, bool success);
     event EscrowRefunded(bytes32 indexed dealId);
@@ -74,7 +77,8 @@ contract ArbiterEscrowV2 {
         address seller,
         IERC20 token,
         uint256 amount,
-        uint256 deadline
+        uint256 deadline,
+        string calldata acceptanceCriteria
     ) external {
         if (deals[dealId].buyer != address(0)) revert DealExists();
         if (seller == address(0)) revert InvalidSeller();
@@ -93,7 +97,7 @@ contract ArbiterEscrowV2 {
         // Safe transfer handles USDT and non-standard tokens
         token.safeTransferFrom(msg.sender, address(this), amount);
 
-        emit EscrowCreated(dealId, msg.sender, seller, amount);
+        emit EscrowCreated(dealId, msg.sender, seller, address(token), amount, deadline, acceptanceCriteria);
     }
 
     /**
