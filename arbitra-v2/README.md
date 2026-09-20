@@ -13,6 +13,13 @@ Arbitra V2 is a massive architectural upgrade to the original Arbitra protocol. 
 By leveraging Monad's high-performance parallel execution and the **EIP-7951 P256 Precompile**, Arbitra V2 completely removes the risk of compromised backend operator keys by requiring a cryptographic signature from a physical hardware secure enclave (like an Android phone or YubiKey) before *any* AI verdict is finalized on-chain.
 
 ---
+## 🌍 Live Monad Testnet Deployments
+| Contract | Address | Explorer |
+|----------|---------|----------|
+| **ArbiterEscrowV2** | `0x03853a2d66a1701132dc54Ea5d21eD9a6DCA9bD8` | [View on Monad Explorer](https://testnet.monadexplorer.com/contracts/full_match/10143/0x03853a2d66a1701132dc54Ea5d21eD9a6DCA9bD8/) |
+| **MockERC20** | `0xA1D47BdB088C1FaD087b20B90D0Da63EDc638E91` | [View on Monad Explorer](https://testnet.monadexplorer.com/address/0xA1D47BdB088C1FaD087b20B90D0Da63EDc638E91) |
+| **Registry (Mock)** | `0x9756a48F595BCAafc0B0C2Fb1a01033EaF0Da486` | [View on Monad Explorer](https://testnet.monadexplorer.com/contracts/full_match/10143/0x9756a48F595BCAafc0B0C2Fb1a01033EaF0Da486/) |
+---
 
 ## 🧭 The Hardware-Backed Architecture
 
@@ -68,6 +75,22 @@ A brand new, dark-themed, highly polished Next.js frontend built with Tailwind C
 
 ---
 
+## Why V2? (Architecture Shift)
+
+### 1. Eliminating the "Hot Wallet" Risk (Hardware Security)
+* **The V1 Flaw:** The backend server held the Oracle's private key. A server compromise allowed attackers to sign arbitrary verdicts and drain escrow funds.
+* **The V2 Solution:** The backend holds zero signing authority over escrow releases. `ArbiterEscrowV2.sol` leverages **Monad's EIP-7951 P256 Precompile** (`0x0100`) to verify signatures on-chain. Even if the server is compromised, funds cannot move without biometric authorization from the admin's physical Secure Enclave (Android Titan M / WebAuthn).
+
+### 2. Zero-Storage Gas Optimization (Event Log Architecture)
+* **The V1 Flaw:** Storing long `acceptanceCriteria` strings in contract state consumed significant gas during deployment.
+* **The V2 Solution:** Criteria is completely omitted from state storage and emitted via the `EscrowCreated` event log. The Oracle dashboard fetches criteria directly from the transaction receipt logs, ensuring immutable data availability at minimal gas cost.
+
+### 3. MEV Protection (Monad BTX Mempool)
+* **The V1 Flaw:** Broadcasting settlement transactions to the public mempool exposed outcomes to front-running and state manipulation.
+* **The V2 Solution:** Settlements are encrypted locally before submission to Monad's BTX threshold-encryption mempool, keeping payloads hidden until block inclusion.
+
+---
+
 ## 🔐 The Smart Contract Security Model
 
 The `ArbiterEscrowV2.sol` contract enforces strict cryptographic boundaries:
@@ -102,18 +125,19 @@ Want to run the full flow locally?
 - A WebAuthn-capable device (Desktop Chrome with Windows Hello/TouchID, or Android via cross-device QR code).
 
 ### 1. Start the Environment
+We use `concurrently` to run both the frontend and backend with a single command!
+
 ```bash
-# Terminal 1: Start the Backend (Handles AI Judging & BTX Relaying)
-cd backend
+# Install dependencies in all folders
 npm install
-npm run backend
+cd frontend && npm install
+cd ../backend && npm instal
+cd ..
 
-# Terminal 2: Start the Frontend
-cd frontend
-npm install
-npm run dev
+# Run both the Next.js Frontend and the Node.js Backend concurrently
+npm run dev:all
+
 ```
-
 ### 2. The Buyer Flow
 1. Open your **Desktop Chrome Browser** to `http://localhost:3001/buyer`.
 2. Connect MetaMask (Automatically switches to Monad Testnet).

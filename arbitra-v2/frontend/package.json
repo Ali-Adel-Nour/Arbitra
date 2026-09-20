@@ -3,12 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3001",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint",
-    "backend": "ts-node backend/src/server.ts",
-    "dev:all": "concurrently \"npm run backend\" \"npm run dev\""
+    "lint": "eslint"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^14.0.0",

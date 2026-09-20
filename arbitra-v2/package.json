@@ -8,7 +8,7 @@
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.ts",
     "backend": "ts-node backend/src/server.ts",
-    "dev:all": "concurrently \"npm run backend\" \"npm run dev\""
+    "dev:all": "concurrently \"npm run backend\" \"npm run dev --prefix frontend\""
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -27,6 +27,7 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.16",
     "chai": "^4.4.1",
+    "concurrently": "^10.0.5",
     "hardhat": "^2.22.0",
     "solidity-coverage": "^0.8.17",
     "ts-node": "^10.9.2",
