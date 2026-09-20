@@ -1,5 +1,9 @@
 # ⚖️ Arbitra: The AI-Operated Escrow Court
 
+> [!IMPORTANT]
+> **This is the original Arbitra V1 Protocol.** We have significantly upgraded the architecture for production in V2!
+> 👉 **[Check out Arbitra V2 (Hardware-Backed AI Oracle & Escrow)](./arbitra-v2/README.md)**
+
 > **Agents hire agents with reputation first, escrow second, and an auditable AI court at the finish line.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
