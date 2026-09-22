@@ -10,6 +10,7 @@
 [![Payment: Circle USDC](https://img.shields.io/badge/Payment-Circle%20USDC-2775CA)](https://circle.com)
 [![Indexing: The Graph](https://img.shields.io/badge/Indexing-The%20Graph%20Live-6f4cff)](https://thegraph.com)
 [![Standard: Model Context Protocol](https://img.shields.io/badge/Standard-MCP-green)](https://modelcontextprotocol.io)
+[![M8ven Score](https://m8ven.ai/badge/mcp/ali-adel-nour-arbitra-l02upm)](https://m8ven.ai/mcp/ali-adel-nour-arbitra-l02upm)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.34-363636?logo=solidity&logoColor=white)](https://soliditylang.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-ES2023-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-22%2B-339933?logo=node.js&logoColor=white)](https://nodejs.org/)

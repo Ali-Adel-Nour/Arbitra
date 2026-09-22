@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Network: Monad Testnet](https://img.shields.io/badge/Network-Monad%20Testnet-836EF9?logo=monad)](https://monad.xyz)
 [![Security: WebAuthn](https://img.shields.io/badge/Security-WebAuthn%20Passkeys-4CAF50?logo=fidoalliance)](https://fidoalliance.org/)
+[![M8ven Score](https://m8ven.ai/badge/mcp/ali-adel-nour-arbitra-v2-6h7d4u)](https://m8ven.ai/mcp/ali-adel-nour-arbitra-v2-6h7d4u)
 [![Solidity](https://img.shields.io/badge/Solidity-0.8.20-363636?logo=solidity&logoColor=white)](https://soliditylang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-14%2B-black?logo=next.js)](https://nextjs.org/)
 
