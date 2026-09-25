@@ -1,0 +1,26 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Admin {
+  id               String   @id @default(cuid())
+  currentChallenge String?
+  authenticators   Authenticator[]
+}
+
+model Authenticator {
+  credentialID         String  @id
+  credentialPublicKey  Bytes
+  counter              Int     // Using Int instead of BigInt for simpler JSON serialization in Node
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String? // Stored as a comma-separated string
+
+  adminId              String
+  admin                Admin   @relation(fields: [adminId], references: [id])
+}

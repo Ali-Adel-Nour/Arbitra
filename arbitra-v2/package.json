@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@prisma/client": "^6.19.3",
     "@types/chai": "^4.3.11",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -29,6 +30,7 @@
     "chai": "^4.4.1",
     "concurrently": "^10.0.5",
     "hardhat": "^2.22.0",
+    "prisma": "^6.19.3",
     "solidity-coverage": "^0.8.17",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"

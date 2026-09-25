@@ -1,4 +1,5 @@
 import express from "express";
+import { PrismaClient } from "@prisma/client";
 import cors from "cors";
 import * as dotenv from "dotenv";
 import { judgeDeliverable, processDealSettlement } from "./escrowManager";
@@ -18,15 +19,21 @@ app.use(cors());
 app.use(express.json());
 
 // ---------------------------------------------------------
-// WebAuthn Admin Configuration (Hackathon Demo)
+// WebAuthn Admin Configuration 
 // ---------------------------------------------------------
 const rpName = "Arbitra V2 Oracle Admin";
 const rpID = "localhost";
 const expectedOrigin = "http://localhost:3001";
+const prisma = new PrismaClient();
 
-// In-memory store for the hackathon demo
-let currentChallenge: string | undefined;
-let registeredAuthenticator: any | undefined;
+// Get or create the singleton Admin
+async function getAdmin() {
+    let admin = await prisma.admin.findFirst();
+    if (!admin) {
+        admin = await prisma.admin.create({ data: {} });
+    }
+    return admin;
+}
 
 // Endpoint to start registering the Android hardware passkey
 app.get("/api/webauthn/register-options", async (req, res) => {
@@ -41,7 +48,13 @@ app.get("/api/webauthn/register-options", async (req, res) => {
                 residentKey: "required",
             },
         });
-        currentChallenge = options.challenge;
+        
+        const admin = await getAdmin();
+        await prisma.admin.update({
+            where: { id: admin.id },
+            data: { currentChallenge: options.challenge }
+        });
+        
         res.json(options);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -51,19 +64,38 @@ app.get("/api/webauthn/register-options", async (req, res) => {
 // Endpoint to verify the Android hardware passkey registration
 app.post("/api/webauthn/register-verify", async (req, res) => {
     const { body } = req;
-    if (!currentChallenge) return res.status(400).json({ error: "No active challenge" });
-
+    
     try {
+        const admin = await getAdmin();
+        if (!admin.currentChallenge) return res.status(400).json({ error: "No active challenge" });
+
         const verification = await verifyRegistrationResponse({
             response: body,
-            expectedChallenge: currentChallenge,
+            expectedChallenge: admin.currentChallenge,
             expectedOrigin,
             expectedRPID: rpID,
         });
 
         if (verification.verified && verification.registrationInfo) {
-            registeredAuthenticator = verification.registrationInfo.credential;
-            console.log("✅ Admin Hardware Passkey Registered!");
+            const credential = verification.registrationInfo.credential;
+            
+            // Wipe old hardware passkeys for this demo Admin
+            await prisma.authenticator.deleteMany({ where: { adminId: admin.id } });
+            
+            // Save the new hardware passkey permanently
+            await prisma.authenticator.create({
+                data: {
+                    credentialID: credential.id,
+                    credentialPublicKey: Buffer.from(credential.publicKey),
+                    counter: credential.counter,
+                    credentialDeviceType: verification.registrationInfo.credentialDeviceType,
+                    credentialBackedUp: verification.registrationInfo.credentialBackedUp,
+                    transports: credential.transports?.join(",") || "",
+                    adminId: admin.id
+                }
+            });
+
+            console.log("✅ Admin Hardware Passkey Saved to SQLite!");
             res.json({ verified: true });
         } else {
             res.status(400).json({ error: "Hardware verification failed" });
@@ -75,21 +107,28 @@ app.post("/api/webauthn/register-verify", async (req, res) => {
 
 // Endpoint to trigger the Hardware Authorization signature
 app.get("/api/webauthn/auth-options", async (req, res) => {
-    if (!registeredAuthenticator) {
-        return res.status(400).json({ error: "No hardware wallet registered yet." });
-    }
-
     try {
+        const admin = await getAdmin();
+        const authenticators = await prisma.authenticator.findMany({ where: { adminId: admin.id } });
+        
+        if (authenticators.length === 0) {
+            return res.status(400).json({ error: "No hardware wallet registered yet." });
+        }
+
         const options = await generateAuthenticationOptions({
             rpID,
-            allowCredentials: [
-                {
-                    id: registeredAuthenticator.id,
-                },
-            ],
+            allowCredentials: authenticators.map(auth => ({
+                id: auth.credentialID,
+                type: "public-key",
+            })),
             userVerification: "required",
         });
-        currentChallenge = options.challenge;
+
+        await prisma.admin.update({
+            where: { id: admin.id },
+            data: { currentChallenge: options.challenge }
+        });
+        
         res.json(options);
     } catch (error: any) {
         res.status(500).json({ error: error.message });
@@ -130,8 +169,17 @@ app.post("/api/settle", async (req, res) => {
             return res.status(400).json({ error: "Missing required fields or WebAuthn response." });
         }
 
-        if (!currentChallenge || !registeredAuthenticator) {
-            return res.status(400).json({ error: "Missing challenge or unregistered hardware." });
+        const admin = await getAdmin();
+        if (!admin.currentChallenge) {
+            return res.status(400).json({ error: "Missing challenge." });
+        }
+        
+        const authenticator = await prisma.authenticator.findUnique({
+            where: { credentialID: webAuthnResponse.id }
+        });
+        
+        if (!authenticator) {
+            return res.status(400).json({ error: "Unregistered hardware." });
         }
 
         console.log(`\n========================================`);
@@ -141,10 +189,15 @@ app.post("/api/settle", async (req, res) => {
         // 1. Cryptographically verify the WebAuthn signature matches the registered passkey
         const verification = await verifyAuthenticationResponse({
             response: webAuthnResponse,
-            expectedChallenge: currentChallenge,
+            expectedChallenge: admin.currentChallenge,
             expectedOrigin,
             expectedRPID: rpID,
-            credential: registeredAuthenticator,
+            credential: {
+                id: authenticator.credentialID,
+                publicKey: new Uint8Array(authenticator.credentialPublicKey),
+                counter: authenticator.counter,
+                transports: authenticator.transports ? (authenticator.transports.split(",") as any) : undefined
+            },
         });
 
         if (!verification.verified) {
