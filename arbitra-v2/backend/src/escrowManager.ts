@@ -14,8 +14,23 @@ if (!oraclePrivateKey) {
     throw new Error("Missing ORACLE_P256_PRIVATE_KEY in environment variables.");
 }
 const signer = new P256Signer(oraclePrivateKey);
+import { hashCanonicalValue, canonicalize } from "./canonicalize";
 
-export async function judgeDeliverable(dealId: string, deliverable: string, acceptanceCriteria: string): Promise<{ success: boolean; score: number; reasoning: string }> {
+export interface EvaluatedVerdict {
+    success: boolean;
+    score: number;
+    reasoning: string;
+    deliverableHash: string;
+    rubricHash: string;
+    verdictHash: string;
+    canonicalPayload: string;
+}
+
+export async function judgeDeliverable(
+    dealId: string, 
+    deliverable: string, 
+    acceptanceCriteria: string
+): Promise<EvaluatedVerdict> {
     console.log(`[AI Judge] Evaluating deal: ${dealId}...`);
 
     const apiKey = process.env.GEMINI_API_KEY;
@@ -64,11 +79,45 @@ ${deliverable}
 
 Analyze the deliverable and return the verdict exactly matching the JSON schema provided.`;
 
-    const result = await model.generateContent(prompt);
-    const text = result.response.text();
+    const aiResponse = await model.generateContent(prompt);
+    const text = aiResponse.response.text();
 
     // The response is guaranteed to match the JSON schema
-    return JSON.parse(text);
+    const result = JSON.parse(text);
+
+    // Compute cryptographic evidence digests
+    const deliverableHash = ethers.keccak256(ethers.toUtf8Bytes(deliverable));
+    const rubricHash = ethers.keccak256(ethers.toUtf8Bytes(acceptanceCriteria));
+
+    // Construct the canonical verdict payload binding decision AND evidence
+    const verdictPayload = {
+        dealId,
+        decision: result.success ? "adjudicated_pass" : "adjudicated_fail",
+        deliverableHash,
+        evidence: [
+            { digest: deliverableHash, role: "deliverable" },
+            { digest: rubricHash, role: "acceptance_criteria" }
+        ],
+        reasoning: result.reasoning,
+        rubricHash,
+        score: result.score,
+        success: result.success
+    };
+
+    const verdictHash = hashCanonicalValue(verdictPayload);
+    const canonicalPayload = canonicalize(verdictPayload);
+
+    console.log(`[AI Judge] Canonical Verdict Hash: ${verdictHash}`);
+
+    return {
+        success: result.success,
+        score: result.score,
+        reasoning: result.reasoning,
+        deliverableHash,
+        rubricHash,
+        verdictHash,
+        canonicalPayload
+    };
 }
 
 export async function processDealSettlement(dealId: string, success: boolean, score: number, reasoning: string) {

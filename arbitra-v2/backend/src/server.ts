@@ -106,13 +106,22 @@ app.post("/api/webauthn/register-verify", async (req, res) => {
 });
 
 // Endpoint to trigger the Hardware Authorization signature
-app.get("/api/webauthn/auth-options", async (req, res) => {
+// Accepts optional verdictHash to cryptographically bind the WebAuthn passkey to the exact deliverable/evidence
+const handleAuthOptions = async (req: express.Request, res: express.Response) => {
     try {
         const admin = await getAdmin();
         const authenticators = await prisma.authenticator.findMany({ where: { adminId: admin.id } });
         
         if (authenticators.length === 0) {
             return res.status(400).json({ error: "No hardware wallet registered yet." });
+        }
+
+        const verdictHash = (req.query?.verdictHash as string) || req.body?.verdictHash;
+        let customChallenge: string | undefined = undefined;
+
+        if (verdictHash && typeof verdictHash === "string" && verdictHash.startsWith("0x")) {
+            console.log(`🔐 Binding WebAuthn Hardware Challenge to Canonical VerdictHash: ${verdictHash}`);
+            customChallenge = Buffer.from(verdictHash.slice(2), "hex").toString("base64url");
         }
 
         const options = await generateAuthenticationOptions({
@@ -122,6 +131,7 @@ app.get("/api/webauthn/auth-options", async (req, res) => {
                 type: "public-key",
             })),
             userVerification: "required",
+            ...(customChallenge ? { challenge: customChallenge } : {}),
         });
 
         await prisma.admin.update({
@@ -133,7 +143,10 @@ app.get("/api/webauthn/auth-options", async (req, res) => {
     } catch (error: any) {
         res.status(500).json({ error: error.message });
     }
-});
+};
+
+app.get("/api/webauthn/auth-options", handleAuthOptions);
+app.post("/api/webauthn/auth-options", handleAuthOptions);
 
 // ---------------------------------------------------------
 // BTX Relay & Escrow Core API
@@ -163,7 +176,7 @@ app.post("/api/judge", async (req, res) => {
 // ROUTE 2: BTX Relay (Verifies Hardware, Constructs TX, Encrypts, Broadcasts)
 app.post("/api/settle", async (req, res) => {
     try {
-        const { dealId, success, score, reasoning, webAuthnResponse } = req.body;
+        const { dealId, success, score, reasoning, webAuthnResponse, verdictHash } = req.body;
 
         if (!dealId || typeof success !== "boolean" || typeof score !== "number" || !reasoning || !webAuthnResponse) {
             return res.status(400).json({ error: "Missing required fields or WebAuthn response." });

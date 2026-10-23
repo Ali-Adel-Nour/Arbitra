@@ -8,6 +8,7 @@
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.ts",
     "backend": "ts-node backend/src/server.ts",
+    "test:hash": "ts-node testHash.ts",
     "dev:all": "concurrently \"npm run backend\" \"npm run dev --prefix frontend\""
   },
   "dependencies": {

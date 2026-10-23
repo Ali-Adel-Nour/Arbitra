@@ -125,8 +125,12 @@ export default function OracleDashboard() {
     try {
       setIsSettling(true);
       
-      // Get authentication options (challenge) from backend
-      const authOptsResp = await fetch(`${getApiUrl()}/api/webauthn/auth-options`);
+      // Get authentication options (challenge) from backend, passing verdictHash to bind hardware signature
+      const authOptsResp = await fetch(`${getApiUrl()}/api/webauthn/auth-options`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdictHash: verdict.verdictHash }),
+      });
       const options = await authOptsResp.json();
       
       // Trigger Android Phone WebAuthn
@@ -141,6 +145,7 @@ export default function OracleDashboard() {
           success: verdict.success,
           score: verdict.score,
           reasoning: verdict.reasoning,
+          verdictHash: verdict.verdictHash,
           webAuthnResponse: asseResp,
         }),
       });
@@ -272,6 +277,18 @@ export default function OracleDashboard() {
                   <h3 className="text-caption text-muted uppercase tracking-wider mb-2 rule-hashed">Reasoning</h3>
                   <p className="text-body text-primary">{verdict.reasoning}</p>
                 </div>
+
+                {verdict.verdictHash && (
+                  <div className="bg-panel-2 border border-rule rounded-[6px] p-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-mono text-muted uppercase">Evidence-Bound Verdict Hash</span>
+                      <span className="text-[10px] text-accent font-mono">SECP256R1 ENCLAVE</span>
+                    </div>
+                    <code className="text-[11px] font-mono text-accent-text break-all block">
+                      {verdict.verdictHash}
+                    </code>
+                  </div>
+                )}
 
                 <div className="pt-4 border-t border-rule">
                   <button
