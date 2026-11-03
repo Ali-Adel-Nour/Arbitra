@@ -4,12 +4,16 @@ pragma solidity ^0.8.20;
 import "./interfaces/IERC8004.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
-contract ArbiterEscrowV2 {
+contract ArbiterEscrowV2 is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // EIP-7951 Precompile Address
     address public constant P256_PRECOMPILE = address(0x0100);
+
+    // Grace period after deadline for the AI Oracle to resolve a submitted deal before buyer can refund
+    uint256 public constant ORACLE_TIMEOUT = 24 hours;
 
     IValidationRegistry public validationRegistry;
     IReputationRegistry public reputationRegistry;
@@ -19,25 +23,33 @@ contract ArbiterEscrowV2 {
 
     error InvalidValidationRegistry();
     error InvalidReputationRegistry();
+    error InvalidOraclePublicKey();
     error DealExists();
     error DealNotFound();
     error AlreadyResolved();
+    error AlreadySubmitted();
     error InvalidSeller();
+    error InvalidToken();
+    error InvalidDeliverable();
     error ZeroAmount();
     error ScoreExceeds100();
     error P256PrecompileFailed();
     error InvalidSignature();
     error EscrowNotExpired();
+    error DeadlinePassed();
     error OnlyBuyer();
+    error OnlySeller();
     error InvalidDeadline();
 
     struct Deal {
         address buyer;
         address seller;
         IERC20 token;
+        bool isSubmitted;
+        bool isResolved;
         uint256 amount;
         uint256 deadline;
-        bool isResolved;
+        bytes32 deliverableHash;
     }
 
     mapping(bytes32 => Deal) public deals;
@@ -51,53 +63,93 @@ contract ArbiterEscrowV2 {
         uint256 deadline,
         string acceptanceCriteria
     );
+    event DeliverableSubmitted(bytes32 indexed dealId, bytes32 deliverableHash);
     event EscrowResolved(bytes32 indexed dealId, bool success);
     event EscrowRefunded(bytes32 indexed dealId);
 
-   constructor(
+    constructor(
         address _validationRegistry, 
         address _reputationRegistry,
         bytes32 _oraclePubKeyX,
         bytes32 _oraclePubKeyY
     ) {
-        if(_validationRegistry.code.length == 0) revert InvalidValidationRegistry();
-        if(_reputationRegistry.code.length == 0) revert InvalidReputationRegistry();
+        if (_validationRegistry.code.length == 0) revert InvalidValidationRegistry();
+        if (_reputationRegistry.code.length == 0) revert InvalidReputationRegistry();
+        if (_oraclePubKeyX == bytes32(0) || _oraclePubKeyY == bytes32(0)) revert InvalidOraclePublicKey();
 
         validationRegistry = IValidationRegistry(_validationRegistry);
         reputationRegistry = IReputationRegistry(_reputationRegistry);
         oraclePubKeyX = _oraclePubKeyX;
         oraclePubKeyY = _oraclePubKeyY;
     }
+
+    /**
+     * @notice Computes the front-running resistant dealId namespaced to the buyer's address.
+     * @param buyer The address of the buyer creating the deal.
+     * @param dealSalt The client-provided salt/identifier for the deal.
+     */
+    function computeDealId(address buyer, bytes32 dealSalt) public pure returns (bytes32) {
+        return keccak256(abi.encode(buyer, dealSalt));
+    }
+
     /**
      * @notice Creates a new agent escrow and locks funds.
-     * @dev Uses a client-provided dealId to save gas on state writes.
+     * @dev Namespaces the client-provided dealSalt with msg.sender to prevent front-running
+     * and measures exact token balance deltas to support fee-on-transfer tokens.
      */
     function createEscrow(
-        bytes32 dealId,
+        bytes32 dealSalt,
         address seller,
         IERC20 token,
         uint256 amount,
         uint256 deadline,
         string calldata acceptanceCriteria
-    ) external {
+    ) external nonReentrant returns (bytes32 dealId) {
+        dealId = computeDealId(msg.sender, dealSalt);
         if (deals[dealId].buyer != address(0)) revert DealExists();
         if (seller == address(0)) revert InvalidSeller();
+        if (address(token) == address(0)) revert InvalidToken();
         if (amount == 0) revert ZeroAmount();
         if (deadline <= block.timestamp) revert InvalidDeadline();
+
+        // Measure exact balance delta to safely support Fee-On-Transfer (FOT) tokens
+        uint256 balanceBefore = token.balanceOf(address(this));
+        token.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 actualAmountReceived = token.balanceOf(address(this)) - balanceBefore;
+        if (actualAmountReceived == 0) revert ZeroAmount();
 
         deals[dealId] = Deal({
             buyer: msg.sender,
             seller: seller,
             token: token,
-            amount: amount,
+            isSubmitted: false,
+            isResolved: false,
+            amount: actualAmountReceived,
             deadline: deadline,
-            isResolved: false
+            deliverableHash: bytes32(0)
         });
 
-        // Safe transfer handles USDT and non-standard tokens
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        emit EscrowCreated(dealId, msg.sender, seller, address(token), actualAmountReceived, deadline, acceptanceCriteria);
+    }
 
-        emit EscrowCreated(dealId, msg.sender, seller, address(token), amount, deadline, acceptanceCriteria);
+    /**
+     * @notice Allows the seller to record deliverable submission on-chain before the deadline.
+     * @dev Locks buyer refunds for ORACLE_TIMEOUT (24 hours) past the deadline so the buyer
+     * cannot front-run or snipe a refund while the AI Oracle is evaluating the work.
+     */
+    function submitDeliverable(bytes32 dealId, bytes32 deliverableHash) external {
+        Deal storage deal = deals[dealId];
+        if (deal.buyer == address(0)) revert DealNotFound();
+        if (msg.sender != deal.seller) revert OnlySeller();
+        if (deal.isResolved) revert AlreadyResolved();
+        if (deal.isSubmitted) revert AlreadySubmitted();
+        if (block.timestamp > deal.deadline) revert DeadlinePassed();
+        if (deliverableHash == bytes32(0)) revert InvalidDeliverable();
+
+        deal.isSubmitted = true;
+        deal.deliverableHash = deliverableHash;
+
+        emit DeliverableSubmitted(dealId, deliverableHash);
     }
 
     /**
@@ -110,8 +162,9 @@ contract ArbiterEscrowV2 {
         string calldata reasoning,
         bytes32 r,
         bytes32 s
-    ) external {
-        if(score > 100) revert ScoreExceeds100();
+    ) external nonReentrant {
+        if (score > 100) revert ScoreExceeds100();
+        if (r == bytes32(0) || s == bytes32(0)) revert InvalidSignature();
         Deal storage deal = deals[dealId];
         if (deal.buyer == address(0)) revert DealNotFound();
         if (deal.isResolved) revert AlreadyResolved();
@@ -165,14 +218,19 @@ contract ArbiterEscrowV2 {
 
     /**
      * @notice Allows the buyer to reclaim funds if the escrow deadline has passed
+     * (plus ORACLE_TIMEOUT if the seller submitted work before the deadline)
      * and the AI Oracle has not resolved it.
      */
-    function refundEscrow(bytes32 dealId) external {
+    function refundEscrow(bytes32 dealId) external nonReentrant {
         Deal storage deal = deals[dealId];
         if (deal.buyer == address(0)) revert DealNotFound();
         if (deal.buyer != msg.sender) revert OnlyBuyer();
         if (deal.isResolved) revert AlreadyResolved();
-        if (block.timestamp <= deal.deadline) revert EscrowNotExpired();
+
+        uint256 earliestRefundTime = deal.isSubmitted
+            ? deal.deadline + ORACLE_TIMEOUT
+            : deal.deadline;
+        if (block.timestamp <= earliestRefundTime) revert EscrowNotExpired();
 
         deal.isResolved = true;
         deal.token.safeTransfer(deal.buyer, deal.amount);

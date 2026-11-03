@@ -26,7 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="dark">
-      <body className={`${grotesk.variable} ${jetbrainsMono.variable} antialiased bg-base text-primary`}>
+      <body suppressHydrationWarning className={`${grotesk.variable} ${jetbrainsMono.variable} antialiased bg-base text-primary`}>
         <nav className="border-b border-rule bg-panel-1 px-8 py-4 flex justify-between items-center">
           <div className="font-bold text-hi text-record">ARBITRA V2</div>
           <div className="flex gap-6">

@@ -2,6 +2,27 @@ import { ethers } from 'ethers';
 import * as crypto from 'crypto';
 import { P256Signer } from './signer.js';
 
+// Register Node's native fetch (undici) for Ethers v6 so requests include Content-Length
+// and HTTP/2 support, avoiding Cloudflare/Monad RPC timeouts on legacy https.request chunked POSTs.
+ethers.FetchRequest.registerGetUrl(async (req) => {
+    const resp = await fetch(req.url, {
+        method: req.method,
+        headers: req.headers,
+        body: req.body ? Buffer.from(req.body) : undefined,
+    });
+    const ab = await resp.arrayBuffer();
+    const headers: Record<string, string> = {};
+    resp.headers.forEach((v, k) => {
+        headers[k] = v;
+    });
+    return {
+        statusCode: resp.status,
+        statusMessage: resp.statusText,
+        headers,
+        body: new Uint8Array(ab),
+    };
+});
+
 // Using a mock AES key to simulate the BTX Threshold encryption for the hackathon.
 // (A real production implementation uses pairing-friendly curves like BLS12-381 via a specialized BTX SDK).
 const MOCK_BTX_SYMMETRIC_KEY = crypto.randomBytes(32);
@@ -83,30 +104,28 @@ export async function submitBtxSettlement(
     console.log("Locally encrypting transaction payload with Monad BTX Threshold Key...");
     const ciphertext = encryptForBtx(signedTx);
 
-    // 6. Broadcast to the specialized BTX RPC endpoint
-    console.log("Submitting encrypted payload to Monad BTX RPC...");
-    const btxRpcProvider = new ethers.JsonRpcProvider(btxRpcUrl, undefined, { staticNetwork: true });
-
+    // 6. Broadcast to the specialized BTX RPC endpoint (or fallback to standard Monad RPC)
     try {
-        const response = await btxRpcProvider.send("eth_sendBtxTransaction", [ciphertext]);
-        console.log(`BTX Transaction submitted successfully. Hash: ${response}`);
-
-        // Stop Ethers v6 background polling loops entirely
-        provider.destroy();
-        btxRpcProvider.destroy();
-
-        return response;
+        if (btxRpcUrl && !btxRpcUrl.includes("rpc-monad-btx.testnet")) {
+            console.log("Submitting encrypted payload to Monad BTX RPC...");
+            const btxRpcProvider = new ethers.JsonRpcProvider(btxRpcUrl, chainId, { staticNetwork: true });
+            try {
+                const response = await btxRpcProvider.send("eth_sendBtxTransaction", [ciphertext]);
+                console.log(`BTX Transaction submitted successfully. Hash: ${response}`);
+                return response;
+            } finally {
+                btxRpcProvider.destroy();
+            }
+        } else {
+            throw new Error("Simulated BTX endpoint configured; using standard RPC fallback.");
+        }
     } catch (error) {
-        console.warn("BTX RPC submission failed. Falling back to standard RPC for local testing...");
-        // Fallback to standard broadcast so local tests actually execute on-chain
+        console.warn("BTX RPC unavailable. Broadcasting signed settlement to Monad Testnet RPC...");
         const txResponse = await provider.broadcastTransaction(signedTx);
-        await txResponse.wait(1); // Wait for exactly 1 confirmation
-        console.log(`Standard Transaction submitted successfully. Hash: ${txResponse.hash}`);
-
-        // Stop Ethers v6 background polling loops entirely
-        provider.destroy();
-        btxRpcProvider.destroy();
-
+        await txResponse.wait(1); // Wait for 1 confirmation
+        console.log(`Standard Transaction confirmed on-chain! Hash: ${txResponse.hash}`);
         return txResponse.hash;
+    } finally {
+        provider.destroy();
     }
 }
