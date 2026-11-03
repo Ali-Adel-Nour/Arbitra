@@ -40,6 +40,7 @@ import { INTERNAL_KEY_VARIABLE, serverEnv } from '@/lib/serverEnv';
 import { env } from '@/lib/env';
 import { isJudgeRequest, isNonZeroHex32 } from '@/lib/guards';
 
+
 export const dynamic = 'force-dynamic';
 
 /** The backend path this proxy forwards to, when a backend is configured. */

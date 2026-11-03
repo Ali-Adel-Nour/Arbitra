@@ -7,7 +7,7 @@
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy": "hardhat run scripts/deploy.ts",
-    "backend": "ts-node backend/src/server.ts",
+    "backend": "ts-node --transpile-only backend/src/server.ts",
     "test:hash": "ts-node testHash.ts",
     "dev:all": "concurrently \"npm run backend\" \"npm run dev --prefix frontend\""
   },
@@ -29,6 +29,7 @@
     "@types/mocha": "^10.0.6",
     "@types/node": "^20.11.16",
     "chai": "^4.4.1",
+    "cloudflared": "^0.7.3",
     "concurrently": "^10.0.5",
     "hardhat": "^2.22.0",
     "prisma": "^6.19.3",

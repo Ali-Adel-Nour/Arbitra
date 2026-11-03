@@ -22,9 +22,37 @@ app.use(express.json());
 // WebAuthn Admin Configuration 
 // ---------------------------------------------------------
 const rpName = "Arbitra V2 Oracle Admin";
-const rpID = "localhost";
-const expectedOrigin = "http://localhost:3001";
+// "platform" (device's own biometric/passkey), "cross-platform" (security key), or unset for any.
+const attachment = process.env.WEBAUTHN_ATTACHMENT as "platform" | "cross-platform" | undefined;
 const prisma = new PrismaClient();
+
+/**
+ * Dynamically resolves rpID and expectedOrigin from env vars OR incoming request headers
+ * (Origin / Referer) so WebAuthn works seamlessly on both http://localhost:3001
+ * and HTTPS tunnels (ngrok, cloudflared, etc.) when opened directly on mobile devices.
+ */
+function resolveWebAuthnContext(req: express.Request): { rpID: string; expectedOrigin: string | string[] } {
+    const configuredOrigins = (process.env.WEBAUTHN_ORIGIN || "http://localhost:3001")
+        .split(",")
+        .map((o) => o.trim())
+        .filter(Boolean);
+
+    const headerUrl = req.headers.origin || req.headers.referer;
+    if (headerUrl) {
+        try {
+            const parsed = new URL(headerUrl);
+            const dynamicOrigin = parsed.origin;
+            const dynamicRpID = process.env.WEBAUTHN_RP_ID || parsed.hostname;
+            const allOrigins = Array.from(new Set([...configuredOrigins, dynamicOrigin]));
+            return { rpID: dynamicRpID, expectedOrigin: allOrigins };
+        } catch {
+            // Fallback to static config below
+        }
+    }
+
+    const fallbackRpID = process.env.WEBAUTHN_RP_ID || "localhost";
+    return { rpID: fallbackRpID, expectedOrigin: configuredOrigins };
+}
 
 // Get or create the singleton Admin
 async function getAdmin() {
@@ -38,6 +66,7 @@ async function getAdmin() {
 // Endpoint to start registering the Android hardware passkey
 app.get("/api/webauthn/register-options", async (req, res) => {
     try {
+        const { rpID } = resolveWebAuthnContext(req);
         const options = await generateRegistrationOptions({
             rpName,
             rpID,
@@ -45,7 +74,8 @@ app.get("/api/webauthn/register-options", async (req, res) => {
             attestationType: "none",
             authenticatorSelection: {
                 userVerification: "required",
-                residentKey: "required",
+                residentKey: "preferred",
+                ...(attachment ? { authenticatorAttachment: attachment } : {}),
             },
         });
         
@@ -66,6 +96,7 @@ app.post("/api/webauthn/register-verify", async (req, res) => {
     const { body } = req;
     
     try {
+        const { rpID, expectedOrigin } = resolveWebAuthnContext(req);
         const admin = await getAdmin();
         if (!admin.currentChallenge) return res.status(400).json({ error: "No active challenge" });
 
@@ -109,6 +140,7 @@ app.post("/api/webauthn/register-verify", async (req, res) => {
 // Accepts optional verdictHash to cryptographically bind the WebAuthn passkey to the exact deliverable/evidence
 const handleAuthOptions = async (req: express.Request, res: express.Response) => {
     try {
+        const { rpID } = resolveWebAuthnContext(req);
         const admin = await getAdmin();
         const authenticators = await prisma.authenticator.findMany({ where: { adminId: admin.id } });
         
@@ -129,6 +161,7 @@ const handleAuthOptions = async (req: express.Request, res: express.Response) =>
             allowCredentials: authenticators.map(auth => ({
                 id: auth.credentialID,
                 type: "public-key",
+                transports: auth.transports ? (auth.transports.split(",") as any) : undefined,
             })),
             userVerification: "required",
             ...(customChallenge ? { challenge: customChallenge } : {}),
@@ -176,6 +209,7 @@ app.post("/api/judge", async (req, res) => {
 // ROUTE 2: BTX Relay (Verifies Hardware, Constructs TX, Encrypts, Broadcasts)
 app.post("/api/settle", async (req, res) => {
     try {
+        const { rpID, expectedOrigin } = resolveWebAuthnContext(req);
         const { dealId, success, score, reasoning, webAuthnResponse, verdictHash } = req.body;
 
         if (!dealId || typeof success !== "boolean" || typeof score !== "number" || !reasoning || !webAuthnResponse) {
@@ -218,6 +252,9 @@ app.post("/api/settle", async (req, res) => {
         }
 
         console.log(`✅ Hardware Authorization verified successfully.`);
+        if (verdictHash) {
+            console.log(`🔗 Hardware Signature locked to Verdict Hash: ${verdictHash}`);
+        }
         console.log(`🔐 Oracle Backend is now signing the raw payload...`);
 
         // 2. Hardware verified, Oracle backend signs the raw payload and broadcasts!
