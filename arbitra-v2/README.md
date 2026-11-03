@@ -17,9 +17,9 @@ By leveraging Monad's high-performance parallel execution and the **EIP-7951 P25
 ## 🌍 Live Monad Testnet Deployments
 | Contract | Address | Explorer |
 |----------|---------|----------|
-| **ArbiterEscrowV2** | `0x03853a2d66a1701132dc54Ea5d21eD9a6DCA9bD8` | [View on Monad Explorer](https://testnet.monadexplorer.com/contracts/full_match/10143/0x03853a2d66a1701132dc54Ea5d21eD9a6DCA9bD8/) |
+| **ArbiterEscrowV2** | `0x03Cb8158FF843c992e69968F597BDB37b958914A` | [View on Monad Explorer](https://testnet.monadexplorer.com/contracts/full_match/10143/0x03Cb8158FF843c992e69968F597BDB37b958914A/) |
 | **MockERC20** | `0xA1D47BdB088C1FaD087b20B90D0Da63EDc638E91` | [View on Monad Explorer](https://testnet.monadexplorer.com/address/0xA1D47BdB088C1FaD087b20B90D0Da63EDc638E91) |
-| **Registry (Mock)** | `0x9756a48F595BCAafc0B0C2Fb1a01033EaF0Da486` | [View on Monad Explorer](https://testnet.monadexplorer.com/contracts/full_match/10143/0x9756a48F595BCAafc0B0C2Fb1a01033EaF0Da486/) |
+| **Registry (Mock)** | `0x06FbE79B2ddff65622eb7B4B8720f27658b621b7` | [View on Monad Explorer](https://testnet.monadexplorer.com/contracts/full_match/10143/0x06FbE79B2ddff65622eb7B4B8720f27658b621b7/) |
 ---
 
 ## 🧭 The Hardware-Backed Architecture
